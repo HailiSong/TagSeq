@@ -1,4 +1,4 @@
-## tagseq
+## TagSeq pipeline
 This directory includes snakemake pipeline for processing TagSeq data:
 The pipeline includes the following steps.
 1. QC using FastQC and multiQC for summarizing and visualizing
