@@ -1,0 +1,59 @@
+import os
+import glob
+
+DIR_GENOME = "/home/haili/genomes/tair10_tair"
+DIR_REF = "/home/haili/references/tair10_rsem_star_100"
+
+rule all:
+	input:
+		os.path.join(DIR_REF, "tair10.grp")
+
+rule download:
+	params: prefix=DIR_GENOME
+	output:
+		os.path.join(DIR_GENOME, "TAIR10_chr1.fas"),
+		os.path.join(DIR_GENOME, "TAIR10_chr2.fas"),
+		os.path.join(DIR_GENOME, "TAIR10_chr3.fas"),
+		os.path.join(DIR_GENOME, "TAIR10_chr4.fas"),
+		os.path.join(DIR_GENOME, "TAIR10_chr5.fas"),
+		os.path.join(DIR_GENOME, "TAIR10_chrC.fas"),
+		os.path.join(DIR_GENOME, "TAIR10_chrM.fas"),
+		os.path.join(DIR_GENOME, "TAIR10_GFF3_genes.gff")
+	shell: """
+		wget --directory-prefix {params.prefix} ftp://ftp.arabidopsis.org/home/tair/Sequences/whole_chromosomes/TAIR10_chr1.fas
+		wget --directory-prefix {params.prefix} ftp://ftp.arabidopsis.org/home/tair/Sequences/whole_chromosomes/TAIR10_chr2.fas
+		wget --directory-prefix {params.prefix} ftp://ftp.arabidopsis.org/home/tair/Sequences/whole_chromosomes/TAIR10_chr3.fas
+		wget --directory-prefix {params.prefix} ftp://ftp.arabidopsis.org/home/tair/Sequences/whole_chromosomes/TAIR10_chr4.fas
+		wget --directory-prefix {params.prefix} ftp://ftp.arabidopsis.org/home/tair/Sequences/whole_chromosomes/TAIR10_chr5.fas
+		wget --directory-prefix {params.prefix} ftp://ftp.arabidopsis.org/home/tair/Sequences/whole_chromosomes/TAIR10_chrC.fas
+		wget --directory-prefix {params.prefix} ftp://ftp.arabidopsis.org/home/tair/Sequences/whole_chromosomes/TAIR10_chrM.fas
+		wget --directory-prefix {params.prefix} ftp://ftp.arabidopsis.org/home/tair/Genes/TAIR10_genome_release/TAIR10_gff3/TAIR10_GFF3_genes.gff
+"""
+
+rule combine:
+	input:
+		os.path.join(DIR_GENOME, "TAIR10_chr1.fas"),
+                os.path.join(DIR_GENOME, "TAIR10_chr2.fas"),
+                os.path.join(DIR_GENOME, "TAIR10_chr3.fas"),
+                os.path.join(DIR_GENOME, "TAIR10_chr4.fas"),
+                os.path.join(DIR_GENOME, "TAIR10_chr5.fas"),
+                os.path.join(DIR_GENOME, "TAIR10_chrC.fas"),
+                os.path.join(DIR_GENOME, "TAIR10_chrM.fas")
+	output:
+		os.path.join(DIR_GENOME, "TAIR10_whole.fa")
+	shell:"""
+		cat {input} > {output}
+		rm {input}
+	"""
+
+rule reference:
+	input:
+		fa=os.path.join(DIR_GENOME, "TAIR10_whole.fa"),
+		gff=os.path.join(DIR_GENOME, "TAIR10_GFF3_genes.gff")
+	params:
+		prefix="/home/haili/references/tair10_rsem_star_100/tair10",
+		overhang=99,
+		p=8
+	output:os.path.join(DIR_REF, "tair10.grp")
+	conda:"/home/haili/configs/tagseq_environment.yml"
+	shell:"rsem-prepare-reference --star --star-sjdboverhang {params.overhang} --gff3 {input.gff} -p {params.p} {input.fa} {params.prefix}"

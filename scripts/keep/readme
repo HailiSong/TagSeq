@@ -1,0 +1,2 @@
+run deg.R first to get differential genes, then
+run 20210127_extract_5_epiRIL_marker.R to combine differential and marker ordered by coordinates.

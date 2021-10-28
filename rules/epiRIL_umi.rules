@@ -1,0 +1,271 @@
+import os
+import glob
+from pathlib import Path
+import shutil
+
+# get current directory
+cwd = "/home/haili/workspace/epiRIL_tagseq_Jun_umi2"
+
+folders = ['QC', 'noDup', 'multiQC', 'trimmed', 'mpd', 'mpd/pattern1', 'mpd/pattern2', 'mpd/pattern3', 'trmmdQC', 'extractUMI', 'RNAmetrics', 'count', 'count_withDup']
+
+
+for folder in folders:
+        dirpath = Path(cwd, folder)
+        if dirpath.exists() and dirpath.is_dir():
+                shutil.rmtree(dirpath)
+        os.mkdir(dirpath)
+
+
+
+DIR_RAW = "/home/haili/data/raw/epiRIL_tagseq_Jun"
+
+DIR_FASTQ = os.path.join(cwd, "QC")
+DIR_MULTIQC = os.path.join(cwd, "multiQC")
+DIR_TRIMMED = os.path.join(cwd, "trimmed")
+DIR_TRMMDQC = os.path.join(cwd, 'trmmdQC')
+DIR_EXTRACTUMI = os.path.join(cwd, 'extractUMI')
+DIR_MPD = os.path.join(cwd, 'mpd')
+DIR_RNAMETRICS = os.path.join(cwd, 'RNAmetrics')
+DIR_COUNT = os.path.join(cwd, 'count')
+DIR_NODUP = os.path.join(cwd, 'noDup')
+DIR_COUNT_WITHDUP = os.path.join(cwd, 'count_withDup')
+
+samples = glob_wildcards(os.path.join(DIR_RAW, '{sample}.fastq.gz')).sample
+print(samples)
+
+rule all:
+	input:
+		expand(os.path.join(DIR_FASTQ, "{sample}_fastqc.zip"),sample=samples),
+#		os.path.join(DIR_MULTIQC, "fastqc_multiqc_report.html"),
+		os.path.join(DIR_MULTIQC, "cutadapt_multiqc_report.html"),
+#		os.path.join(DIR_MULTIQC, "fastqc_trmmd_multiqc_report.html"),
+#		expand(os.path.join(DIR_EXTRACTUMI, "{sample}_noUMI.fastq.gz"), sample=samples),
+#		expand(os.path.join(DIR_NODUP, "pattern1", "{sample}_stats"), sample=samples),
+#		expand(os.path.join(DIR_NODUP, "pattern2", "{sample}_stats"), sample=samples),
+#		expand(os.path.join(DIR_NODUP, "pattern3", "{sample}_stats"), sample=samples),
+		expand(os.path.join(DIR_COUNT_WITHDUP, "{sample}_featurecounts_withDup.txt"), sample=samples),
+		expand(os.path.join(DIR_COUNT, "{sample}_featurecounts.txt"), sample=samples),
+#		os.path.join(DIR_COUNT, "final_all_samples_featurecounts.tsv"),
+#		os.path.join(DIR_COUNT_WITHDUP, "final_all_samples_featurecounts_withDup.tsv")
+# --------------------------------------
+
+rule qc:
+	input: os.path.join(DIR_RAW, "{sample}.fastq.gz")
+	output:
+		html = os.path.join(DIR_FASTQ, "{sample}_fastqc.html"),
+		zip = os.path.join(DIR_FASTQ, "{sample}_fastqc.zip")
+	log: os.path.join(DIR_FASTQ, "{sample}.log")
+	threads: 2
+	conda: "/home/haili/configs/tagseq_environment.yml"
+	shell:"fastqc -t {threads} --outdir {DIR_FASTQ} {input} &> {log}"
+
+# ---------------------------------------
+
+rule multiqc_QC:
+        input: expand(os.path.join(DIR_FASTQ, "{sample}_fastqc.zip"), sample=samples)
+        output:
+                html=os.path.join(DIR_MULTIQC, "fastqc_multiqc_report.html"),
+        conda: "/home/haili/configs/tagseq_environment.yml"
+        shell: "multiqc --force -n {output.html} {input}"
+
+# ---------------------------------------
+
+rule trim_adapter:
+        input: os.path.join(DIR_RAW, "{sample}.fastq.gz")
+        output:
+                fq=os.path.join(DIR_TRIMMED, "{sample}_trimmed.fastq"),
+                log=os.path.join(DIR_TRIMMED, "{sample}_cutadapt.log")
+        threads: 8
+        conda: "/home/haili/configs/tagseq_environment.yml"
+        params:
+                adapters="-a AAAAAAAAAAAAAAA",
+                extra="-m 35"
+        shell:
+                "cutadapt -j {threads} {params.adapters} {params.extra} -o {output.fq} {input} > {output.log}"
+
+# ---------------------------------------
+
+rule multiqc_cutadapt:
+        input: expand(os.path.join(DIR_TRIMMED, "{sample}_cutadapt.log"), sample=samples)
+        output:
+                html=os.path.join(DIR_MULTIQC, "cutadapt_multiqc_report.html")
+        conda: "/home/haili/configs/tagseq_environment.yml"
+        shell: "multiqc --force -n {output.html} {input}"
+
+# ---------------------------------------
+
+rule qc_after_trim:
+	input: os.path.join(DIR_TRIMMED, "{sample}_trimmed.fastq")
+	output: os.path.join(DIR_TRMMDQC, "{sample}_fastqc.zip")
+	log:os.path.join(DIR_TRMMDQC, "{sample}.log")
+	threads:2
+	conda: "/home/haili/configs/tagseq_environment.yml"
+	shell: "fastqc -t {threads} --outdir {DIR_TRMMDQC} {input} &> {log}"
+
+# ---------------------------------------
+
+rule multiqc_after_trim:
+        input: expand(os.path.join(DIR_TRMMDQC, "{sample}_fastqc.zip"), sample=samples)
+        output:
+                html=os.path.join(DIR_MULTIQC, "fastqc_trmmd_multiqc_report.html"),
+        conda: "/home/haili/configs/tagseq_environment.yml"
+        shell: "multiqc --force -n {output.html} {input}"
+
+
+
+# ----------------------------------------
+
+rule extract_umi:
+	input: os.path.join(DIR_TRIMMED, "{sample}_trimmed.fastq")
+	output: 
+		umi=os.path.join(DIR_EXTRACTUMI, "{sample}_withUMI.fastq"),
+		no_umi=os.path.join(DIR_EXTRACTUMI, "{sample}_noUMI.fastq.gz"),
+		p1 = os.path.join(DIR_EXTRACTUMI, "{sample}.1.fastq"),
+		p2 = os.path.join(DIR_EXTRACTUMI, "{sample}.2.fastq"),
+		p3 = os.path.join(DIR_EXTRACTUMI, "{sample}.3.fastq")
+	log:
+		p1 = os.path.join(DIR_EXTRACTUMI, "{sample}_p1.log"),
+		p2 = os.path.join(DIR_EXTRACTUMI, "{sample}_p2.log"),
+		p3 = os.path.join(DIR_EXTRACTUMI, "{sample}_p3.log")
+	params:
+		raw="{sample}.fastq.gz"
+	conda: "/home/haili/configs/tagseq_environment.yml"
+	shell:"""
+		umi_tools extract --stdin={input} --stdout={output.p1} --log2stderr {log.p1} --extract-method=regex --bc-pattern='(?P<umi_1>N.TGC[AC][AT]GGG){{s<=1}}'
+		umi_tools extract --stdin={input} --stdout={output.p2} --log2stderr {log.p2} --extract-method=regex --bc-pattern='(?P<umi_1>N.GC[AT]TC[ATC][AC][AT]GGG){{s<=1}}'
+		umi_tools extract --stdin={input} --stdout={output.p3} --log2stderr {log.p3} --extract-method=regex --bc-pattern='(?P<umi_1>N.[AC][AT]GGG){{s<=1}}'
+		cat {output.p1} {output.p2} {output.p3} | gzip > {output.umi}
+		
+		awk 'NR==FNR{{split($1, b, "_"); a[b[1]]; next}} !($1 in a){{print $0}}' <(cat {output.umi} | paste - - - -) <(zcat params.raw | paste - - - -) | awk -F"\t" '{{for(i=1;i<=NF;i++)print $i}}' | gzip > {output.no_umi}
+		"""
+
+# ------------------------------------------
+
+rule map:
+	input:
+		p1 = os.path.join(DIR_EXTRACTUMI, "{sample}.1.fastq"),
+                p2 = os.path.join(DIR_EXTRACTUMI, "{sample}.2.fastq"),
+                p3 = os.path.join(DIR_EXTRACTUMI, "{sample}.3.fastq")
+	output:
+		p1_gene = os.path.join(DIR_MPD, "pattern1",  "{sample}_Aligned.sortedByCoord.out.bam"),
+		p1_final = os.path.join(DIR_MPD, "pattern1", "{sample}_Log.final.out"),
+		p2_gene = os.path.join(DIR_MPD, "pattern2",  "{sample}_Aligned.sortedByCoord.out.bam"),
+                p2_final = os.path.join(DIR_MPD, "pattern2", "{sample}_Log.final.out"),
+		p3_gene = os.path.join(DIR_MPD, "pattern3",  "{sample}_Aligned.sortedByCoord.out.bam"),
+                p3_final = os.path.join(DIR_MPD, "pattern3", "{sample}_Log.final.out")
+	params:
+		prefix1=os.path.join(DIR_MPD, "pattern1", "{sample}_"),
+		prefix2=os.path.join(DIR_MPD, "pattern2", "{sample}_"),
+		prefix3=os.path.join(DIR_MPD, "pattern3", "{sample}_"),
+                refdir = "/home/haili/references/tair10_rsem_star_100"
+	log:
+		p1=os.path.join(DIR_MPD, "pattern1", "{sample}.log"),
+		p2=os.path.join(DIR_MPD, "pattern2", "{sample}.log"),
+		p3=os.path.join(DIR_MPD, "pattern3", "{sample}.log")
+	threads: 16
+	conda: "/home/haili/configs/tagseq_environment.yml"
+	shell:
+		"""
+		STAR --runMode alignReads --runThreadN {threads} --quantMode GeneCounts --genomeDir {params.refdir} --outSAMtype BAM SortedByCoordinate --genomeLoad NoSharedMemory --limitBAMsortRAM 60000000000 --outFileNamePrefix {params.prefix1} --readFilesIn {input.p1} &> {log.p1}
+                samtools index {output.p1_gene}
+
+		STAR --runMode alignReads --runThreadN {threads} --quantMode GeneCounts --genomeDir {params.refdir} --outSAMtype BAM SortedByCoordinate --genomeLoad NoSharedMemory --limitBAMsortRAM 60000000000 --outFileNamePrefix {params.prefix2} --readFilesIn {input.p2} &> {log.p2}
+                samtools index {output.p2_gene}
+
+		STAR --runMode alignReads --runThreadN {threads} --quantMode GeneCounts --genomeDir {params.refdir} --outSAMtype BAM SortedByCoordinate --genomeLoad NoSharedMemory --limitBAMsortRAM 60000000000 --outFileNamePrefix {params.prefix3} --readFilesIn {input.p3} &> {log.p3}
+                samtools index {output.p3_gene}
+		"""
+
+# --------------------------------------
+rule featurecounts_withDup:
+	input:
+		p1 = os.path.join(DIR_MPD, "pattern1",  "{sample}_Aligned.sortedByCoord.out.bam"),
+		p2 = os.path.join(DIR_MPD, "pattern2",  "{sample}_Aligned.sortedByCoord.out.bam"),
+		p3 = os.path.join(DIR_MPD, "pattern3",  "{sample}_Aligned.sortedByCoord.out.bam")
+	output:
+		os.path.join(DIR_COUNT_WITHDUP, "{sample}_featurecounts_withDup.txt")
+	params:
+		c = os.path.join(DIR_COUNT_WITHDUP, "{sample}_featurecounts_out.txt"),
+		gff="/home/haili/genomes/tair10_tair/TAIR10_GFF3_genes.gff",
+		smpl="{sample}"
+	log:
+		os.path.join(DIR_COUNT_WITHDUP, "{sample}_featurecounts_out.log"),
+	threads: 2
+	conda: "/home/haili/configs/tagseq_environment.yml"
+	shell:
+		"""
+		featureCounts -T {threads} -F GFF -t gene -g Name -s 1 -a {params.gff} -o {params.c} {input.p1} {input.p2} {input.p3} &> {log}
+		awk -v s={params.smpl} 'NR==2{{print $1 "\\t" $2 "\\t" $3 "\\t" $4 "\\t" $5 "\\t" $6"\\t"s}}NR>2{{for(i=1;i<=NF-3;i++)printf "%s\\t", $i; print $(NF-2)+$(NF-1)+$(NF)}}' {params.c} > {output}
+		"""
+
+# --------------------------
+
+rule remove_duplication_umi:
+        input:
+                p1 = os.path.join(DIR_MPD, "pattern1",  "{sample}_Aligned.sortedByCoord.out.bam"),
+                p2 = os.path.join(DIR_MPD, "pattern2",  "{sample}_Aligned.sortedByCoord.out.bam"),
+                p3 = os.path.join(DIR_MPD, "pattern3",  "{sample}_Aligned.sortedByCoord.out.bam")
+        output:
+                p1 = os.path.join(DIR_NODUP, "pattern1", "{sample}_genome.dedup.bam"),
+                p2 = os.path.join(DIR_NODUP, "pattern2", "{sample}_genome.dedup.bam"),
+                p3 = os.path.join(DIR_NODUP, "pattern3", "{sample}_genome.dedup.bam")
+        log:
+                p1=os.path.join(DIR_NODUP, "pattern1", "{sample}_dedup.log"),
+                p2=os.path.join(DIR_NODUP, "pattern2", "{sample}_dedup.log"),
+                p3=os.path.join(DIR_NODUP, "pattern3", "{sample}_dedup.log")
+	params:
+		p1_stats = os.path.join(DIR_NODUP, "pattern1", "{sample}_stats"),
+		p2_stats = os.path.join(DIR_NODUP, "pattern2", "{sample}_stats"),
+		p3_stats = os.path.join(DIR_NODUP, "pattern3", "{sample}_stats")
+	conda: "/home/haili/configs/tagseq_environment.yml"
+        shell:
+                """
+                umi_tools dedup -I {input.p1} -S {output.p1} --log {log.p1} --output-stats {params.p1_stats}
+                umi_tools dedup -I {input.p2} -S {output.p2} --log {log.p2} --output-stats {params.p2_stats}
+                umi_tools dedup -I {input.p3} -S {output.p3} --log {log.p3} --output-stats {params.p3_stats}
+                """
+
+# -----------------------------------
+
+rule featurecounts:
+	input: 
+		p1 = os.path.join(DIR_NODUP, "pattern1", "{sample}_genome.dedup.bam"),
+		p2 = os.path.join(DIR_NODUP, "pattern2", "{sample}_genome.dedup.bam"),
+		p3 = os.path.join(DIR_NODUP, "pattern3", "{sample}_genome.dedup.bam")
+	output:
+		os.path.join(DIR_COUNT, "{sample}_featurecounts.txt")
+	params:
+		c = os.path.join(DIR_COUNT, "{sample}_featurecounts_out.txt"),
+		gff="/home/haili/genomes/tair10_tair/TAIR10_GFF3_genes.gff",
+		smpl="{sample}"
+	log: 
+		os.path.join(DIR_COUNT, "{sample}_featurecounts_out.log"),
+	threads: 2
+	conda: "/home/haili/configs/tagseq_environment.yml"
+	shell:
+		"""
+		featureCounts -T {threads} -F GFF -t gene -g Name -s 1 -a {params.gff} -o {params.c} {input.p1} {input.p2} {input.p3} &> {log}
+		awk -v s={params.smpl} 'NR==2{{print $1 "\\t" $2 "\\t" $3 "\\t" $4 "\\t" $5 "\\t" $6"\\t"s}}NR>2{{for(i=1;i<=NF-3;i++)printf "%s\\t", $i; print $(NF-2)+$(NF-1)+$(NF)}}' {params.c} > {output}
+		"""
+#> {output}
+	
+# -----------------------------------
+'''
+
+rule merge_count:
+	output: os.path.join(DIR_COUNT, "final_all_samples_featurecounts.tsv")
+	params: 
+		inputdir=DIR_COUNT
+		pattern="featurecounts.txt"
+	shell: "python /home/haili/code/epiRIL_tagseq_Jun/scripts/merge_featurecounts.py {params.inputdir} {params} {output}"
+
+
+# ----------------------------------
+
+rule merge_count_withdup:
+	input: DIR_COUNT_WITHDUP
+	output: os.path.join(DIR_COUNT_WITHDUP, "final_all_samples_featurecounts_withDup.tsv")
+	params: "_withDup.txt"
+	shell: "python /home/haili/code/epiRIL_tagseq_Jun/scripts/merge_featurecounts.py {input} {params} {output}"
+
+'''
